@@ -1,0 +1,14 @@
+<?php
+
+/**
+ * @file
+ * Module install and update functions for the Custom Blocks module.
+ */
+
+/**
+ * Implements hook_uninstall().
+ */
+function custom_blocks_uninstall() {
+  variable_del('custom_blocks_data');
+  cache_clear_all('variables', 'cache');
+}
