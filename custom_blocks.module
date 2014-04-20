@@ -6,7 +6,7 @@ function custom_blocks_permission() {
   return array(
     'administer custom blocks' => array(
       'title' => t('Administer Custom Blocks'),
-      'description' => t('Allow adminstrators to configure the custom blocks.'),
+      'description' => t('Allow users to configure the custom blocks.'),
     ),
   );
 }
@@ -19,6 +19,7 @@ function custom_blocks_menu() {
 
   $items['admin/config/content/custom_blocks'] = array(
     'title' => 'Custom Blocks',
+    'description' => 'Manage Custom Blocks',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('custom_blocks_form'),
     'access callback' => 'user_access',
@@ -55,8 +56,12 @@ function custom_blocks_form() {
     ),
   );
 
-  // get saved data
+	// get default data, use local data if exists
 	$custom_blocks_data = variable_get('custom_blocks_data', array());
+	if(count(variable_get('custom_blocks_local_data', array()))) { 
+		$custom_blocks_data = variable_get('custom_blocks_local_data');
+		variable_set('custom_blocks_data', $custom_blocks_data); // overwrite default data
+	}
 
 	// loop through saved data and create block forms
   foreach($custom_blocks_data as $block_id => $block_data) {
@@ -66,11 +71,15 @@ function custom_blocks_form() {
 			'#collapsible' => TRUE,
 			'#collapsed' => TRUE,
 		);
+
+		// textfield for title
 		$form['custom_blocks'][ $block_id ]['title'] = array(
 			'#type' => 'textfield',
 			'#title' => t('Block Title'),
 			'#default_value' => $custom_blocks_data[ $block_id ]['title'],
 		);
+
+		// text_format for content
 		$content = $custom_blocks_data[ $block_id ]['content'];
 		if(!isset($content['value'])) $content['value'] = $content;
 		$form['custom_blocks'][ $block_id ]['content'] = array(
@@ -79,6 +88,8 @@ function custom_blocks_form() {
 			'#default_value' => $content['value'],
 			'#format' => 'full_html',
 		);
+
+		// remove button
 		$form['custom_blocks'][ $block_id ]['remove'] = array(
 			'#type' => 'submit',
 			'#value' => t('Remove Block '.$block_id),
@@ -102,60 +113,67 @@ function custom_blocks_form() {
 }
 
 /*
- * AJAX Callback
+ * AJAX Callback for add and remove buttons
  */
 function custom_blocks_block_callback($form, $form_state) {
   return $form['custom_blocks'];
 }
 
 /*
- * Function called by add button
+ * Function called by add 
+ * Store data in local and in default array in case the user wants to export this saved data
  */
 function custom_blocks_add_block($form, &$form_state) {
-	$custom_blocks_data = variable_get('custom_blocks_data', '');		// get saved data
-	$custom_blocks_data[] = array('title' => '', 'content' => '');	// edit saved data
-	variable_set('custom_blocks_data', $custom_blocks_data);				// store data
+	$custom_blocks_data = variable_get('custom_blocks_data', '');
+	$custom_blocks_data[] = array('title' => '', 'content' => '');
+	variable_set('custom_blocks_data', $custom_blocks_data);
+	variable_set('custom_blocks_local_data', $custom_blocks_data);
 
 	$form_state['rebuild'] = TRUE;
 }
 
 /*
  * Function called by remove buttons
+ * Get block id, remove block and store data in local and default array
  */
 function custom_blocks_remove_block($form, &$form_state) {
-	$block_id = $form_state['triggering_element']['#parents'][1];				// get block id
-	$custom_blocks_data = variable_get('custom_blocks_data', array());	// get saved data
-	unset($custom_blocks_data[ $block_id ]);														// remove block
-	variable_set('custom_blocks_data', $custom_blocks_data);						// store data
+	$block_id = $form_state['triggering_element']['#parents'][1];
+	$custom_blocks_data = variable_get('custom_blocks_data', array());
+	unset($custom_blocks_data[ $block_id ]);
+	variable_set('custom_blocks_data', $custom_blocks_data);
+	variable_set('custom_blocks_local_data', $custom_blocks_data);
 
 	$form_state['rebuild'] = TRUE;
 }
 
 /*
  * Form submit
+ * Get saved data, unset unwanted elements and store data both in local and default array
  */
 function custom_blocks_form_submit($form, &$form_state) {
-	$custom_blocks_data = variable_get('custom_blocks_data', array());						// get saved data
-	unset($form_state['values']['custom_blocks']['add']);													// we don't need the add button
-	foreach($form_state['values']['custom_blocks'] as $block_id => $block_data) {	// loop through submitted values
-		unset($block_data['remove']);																								// we don't need the remove buttons
-		$custom_blocks_data[ $block_id ] = $block_data;															// add block values
+	$custom_blocks_data = variable_get('custom_blocks_data', array());
+	unset($form_state['values']['custom_blocks']['add']);
+	foreach($form_state['values']['custom_blocks'] as $block_id => $block_data) {
+		unset($block_data['remove']);
+		$custom_blocks_data[ $block_id ] = $block_data;
 	}
-	variable_set('custom_blocks_data', $custom_blocks_data);											// store data
+	variable_set('custom_blocks_data', $custom_blocks_data);
+	variable_set('custom_blocks_local_data', $custom_blocks_data);
 }
 
 /**
- * Implementation of hook_block_info().
+ * Implementation of hook_block_info()
+ * Get saved data, loop through blocks and create block info
  */
 function custom_blocks_block_info() {
 	$blocks = array();
-	$custom_blocks_data = variable_get('custom_blocks_data', array());	// get saved data
+	$custom_blocks_data = variable_get('custom_blocks_data', array());
 
-	foreach($custom_blocks_data as $block_id => $block_data) {					// loop through blocks
-		$title = $block_data['title'];																		// set title, if none, use block id
+	foreach($custom_blocks_data as $block_id => $block_data) {
+		$title = $block_data['title'];
 		if(empty($title)) $title = $block_id;
 
-	  $blocks['custom_block_'.$block_id] = array(												// create block info
+	  $blocks['custom_block_'.$block_id] = array(
 	    'info' => t('Custom Block: '.$title),
 	  );
 	}
@@ -164,20 +182,21 @@ function custom_blocks_block_info() {
 
 
 /**
- * Implementation of hook_block_view().
+ * Implementation of hook_block_view()
+ * Get saved data, explode $delta to retrieve block id and set the block title and content
  */
 function custom_blocks_block_view($delta = '') {
   $block = array();
-  $custom_blocks_data = variable_get('custom_blocks_data', array());	// get saved data
-  $tmp = explode('_', $delta); 																				// explode on _ to retrieve the block id
-  $block_id = $tmp[ count($tmp)-1 ]; 																	// last one is block id
+  $custom_blocks_data = variable_get('custom_blocks_data', array());
+  $tmp = explode('_', $delta);
+  $block_id = $tmp[ count($tmp)-1 ];
 
   if(isset($custom_blocks_data[ $block_id ])) {
   	$title = $custom_blocks_data[ $block_id ]['title'];
   	$content = $custom_blocks_data[ $block_id ]['content'];
   	if(!isset($content['value'])) $content['value'] = $content;
 
-  	$block['subject'] = $title;																				// set block title and content
+  	$block['subject'] = $title;
     $block['content'] =  $content['value'];
     $block['cache'] = DRUPAL_CACHE_GLOBAL;
   }

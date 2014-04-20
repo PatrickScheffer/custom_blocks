@@ -10,5 +10,6 @@
  */
 function custom_blocks_uninstall() {
   variable_del('custom_blocks_data');
+  variable_del('custom_blocks_local_data');
   cache_clear_all('variables', 'cache');
 }
