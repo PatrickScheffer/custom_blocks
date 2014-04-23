@@ -30,9 +30,31 @@ function custom_blocks_menu() {
   return $items;
 }
 
-function custom_blocks_form() {
-  $form = array();
+// on page load, run through local data once to dismiss pending remove requests
+$local_data = variable_get('custom_blocks_local_data', array());
+if(count($local_data)) {
+  foreach($local_data as $block_id => $block_data) {
+    if(isset($block_data['remove'])) unset($local_data[ $block_id ]['remove']);
+  }
+  variable_set('custom_blocks_local_data', $local_data);
+}
 
+/*
+ * Implements hook_form()
+ *
+ * Var custom_blocks_data contains default (feature exported) data
+ * Var custom_blocks_local_data contains local stored data and overwrites default data on save
+ * On reset (e.g. kraftwagen update), however, the custom_blocks_local_data will be overwritten by custom_blocks_data
+ */
+function custom_blocks_form() {
+  // get default data, use local data if exists
+  $custom_blocks_data = variable_get('custom_blocks_data', array());
+  if(count(variable_get('custom_blocks_local_data', array()))) { 
+    $custom_blocks_data = variable_get('custom_blocks_local_data');
+    variable_set('custom_blocks_data', $custom_blocks_data); // overwrite default data
+  }
+
+  $form = array();
   $form['#tree'] = TRUE;
 
   // wrapper
@@ -56,13 +78,6 @@ function custom_blocks_form() {
     ),
   );
 
-	// get default data, use local data if exists
-	$custom_blocks_data = variable_get('custom_blocks_data', array());
-	if(count(variable_get('custom_blocks_local_data', array()))) { 
-		$custom_blocks_data = variable_get('custom_blocks_local_data');
-		variable_set('custom_blocks_data', $custom_blocks_data); // overwrite default data
-	}
-
 	// loop through saved data and create block forms
   foreach($custom_blocks_data as $block_id => $block_data) {
   	$form['custom_blocks'][ $block_id ] = array(
@@ -76,11 +91,11 @@ function custom_blocks_form() {
 		$form['custom_blocks'][ $block_id ]['title'] = array(
 			'#type' => 'textfield',
 			'#title' => t('Block Title'),
-			'#default_value' => $custom_blocks_data[ $block_id ]['title'],
+			'#default_value' => $block_data['title'],
 		);
 
 		// text_format for content
-		$content = $custom_blocks_data[ $block_id ]['content'];
+		$content = $block_data['content'];
 		if(!isset($content['value'])) $content['value'] = $content;
 		$form['custom_blocks'][ $block_id ]['content'] = array(
 			'#type' => 'text_format',
@@ -89,18 +104,57 @@ function custom_blocks_form() {
 			'#format' => 'full_html',
 		);
 
-		// remove button
-		$form['custom_blocks'][ $block_id ]['remove'] = array(
-			'#type' => 'submit',
-			'#value' => t('Remove Block '.$block_id),
-			'#submit' => array('custom_blocks_remove_block'),
-			'#ajax' => array(
-	      'callback' => 'custom_blocks_block_callback',
-	      'wrapper' => 'block-wrapper',
-	      'method' => 'replace',
-	      'effect' => 'fade',
-	    ),
-		);
+    // remove block wrapper
+    $form['custom_blocks'][ $block_id ]['remove_wrapper'] = array(
+      '#type' => 'fieldset',
+      '#prefix' => '<div id="remove-block-'.$block_id.'">',
+      '#suffix' => '</div>',
+    );
+
+    if(isset($block_data['remove']) && $block_data['remove'] == TRUE) {
+		  // remove button confirm
+      $form['custom_blocks'][ $block_id ]['remove_wrapper']['confirm_remove'] = array(
+        '#type' => 'submit',
+        '#value' => t('Yes'),
+        '#submit' => array('custom_blocks_remove_block_confirm'),
+        '#attributes' => array('class' => array('custom_block_confirm_remove')),
+        '#prefix' => t('Are you sure?&nbsp;&nbsp;'),
+        '#ajax' => array(
+          'callback' => 'custom_blocks_block_callback',
+          'wrapper' => 'block-wrapper',
+          'method' => 'replace',
+          'effect' => 'fade',
+        ),
+      );
+
+      // remove button cancel
+      $form['custom_blocks'][ $block_id ]['remove_wrapper']['cancel_remove'] = array(
+        '#type' => 'submit',
+        '#value' => t('No'),
+        '#submit' => array('custom_blocks_remove_block_cancel'),
+        '#attributes' => array('class' => array('custom_block_cancel_remove')),
+        '#ajax' => array(
+          'callback' => 'custom_blocks_remove_block_callback',
+          'wrapper' => 'remove-block-'.$block_id,
+          'method' => 'replace',
+          'effect' => 'fade',
+        ),
+      );
+    } else {
+      // remove button
+      $form['custom_blocks'][ $block_id ]['remove_wrapper']['remove'] = array(
+        '#type' => 'submit',
+        '#value' => t('Remove Block '.$block_id),
+        '#submit' => array('custom_blocks_remove_block'),
+        '#attributes' => array('class' => array('custom_block_remove')),
+        '#ajax' => array(
+          'callback' => 'custom_blocks_remove_block_callback',
+          'wrapper' => 'remove-block-'.$block_id,
+          'method' => 'replace',
+          'effect' => 'fade',
+        ),
+      );
+    }
   }
 
   // submit button
@@ -113,10 +167,18 @@ function custom_blocks_form() {
 }
 
 /*
- * AJAX Callback for add and remove buttons
+ * AJAX Callback for add and confirm remove button
  */
 function custom_blocks_block_callback($form, $form_state) {
   return $form['custom_blocks'];
+}
+
+/*
+ * AJAX Callback for remove and cancel remove button
+ */
+function custom_blocks_remove_block_callback($form, $form_state) {
+  $block_id = $form_state['triggering_element']['#parents'][1];
+  return $form['custom_blocks'][ $block_id ]['remove_wrapper'];
 }
 
 /*
@@ -133,11 +195,37 @@ function custom_blocks_add_block($form, &$form_state) {
 }
 
 /*
- * Function called by remove buttons
- * Get block id, remove block and store data in local and default array
+ * Function called by remove button
+ * Get block id, set remove var true to summon confirm and cancel buttons
  */
 function custom_blocks_remove_block($form, &$form_state) {
-	$block_id = $form_state['triggering_element']['#parents'][1];
+  $block_id = $form_state['triggering_element']['#parents'][1];
+  $custom_blocks_data = variable_get('custom_blocks_local_data', array());
+  $custom_blocks_data[ $block_id ]['remove'] = TRUE;
+  variable_set('custom_blocks_local_data', $custom_blocks_data);
+
+  $form_state['rebuild'] = TRUE;
+}
+
+/*
+ * Function called by remove button cancel
+ * Get block id, unset the remove var and update local data
+ */
+function custom_blocks_remove_block_cancel($form, &$form_state) {
+  $block_id = $form_state['triggering_element']['#parents'][1];
+  $custom_blocks_data = variable_get('custom_blocks_local_data', array());
+  unset($custom_blocks_data[ $block_id ]['remove']);
+  variable_set('custom_blocks_local_data', $custom_blocks_data);
+
+  $form_state['rebuild'] = TRUE;
+}
+
+/*
+ * Function called by remove button confirm
+ * Get block id, remove block and store data in local and default array
+ */
+function custom_blocks_remove_block_confirm($form, &$form_state) {
+  $block_id = $form_state['triggering_element']['#parents'][1];
 	$custom_blocks_data = variable_get('custom_blocks_data', array());
 	unset($custom_blocks_data[ $block_id ]);
 	variable_set('custom_blocks_data', $custom_blocks_data);
