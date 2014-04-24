@@ -60,7 +60,7 @@ function custom_blocks_form() {
   // wrapper
   $form['custom_blocks'] = array(
   	'#type' => 'fieldset',
-  	'#prefix' => '<div id="block-wrapper">',
+  	'#prefix' => '<div id="blocks-wrapper">',
   	'#suffix' => '</div>',
   );
 
@@ -68,11 +68,10 @@ function custom_blocks_form() {
   $form['custom_blocks']['add'] = array(
     '#type' => 'submit',
     '#value' => t('Add Block'),
-    '#attributes' => array('class' => array('add-block')),
     '#submit' => array('custom_blocks_add_block'),
     '#ajax' => array(
-      'callback' => 'custom_blocks_block_callback',
-      'wrapper' => 'block-wrapper',
+      'callback' => 'custom_blocks_blocks_wrapper_callback',
+      'wrapper' => 'blocks-wrapper',
       'method' => 'replace',
       'effect' => 'fade',
     ),
@@ -83,26 +82,54 @@ function custom_blocks_form() {
   	$form['custom_blocks'][ $block_id ] = array(
 			'#type' => 'fieldset',
 			'#title' => t('Block '.$block_id),
+      '#prefix' => '<div id="block-'.$block_id.'">',
+      '#suffix' => '</div>',
 			'#collapsible' => TRUE,
-			'#collapsed' => TRUE,
 		);
+
+    $form['custom_blocks'][ $block_id ]['actions'] = array(
+      '#type' => 'fieldset',
+    );
+
+    $form['custom_blocks'][ $block_id ]['actions']['add_textfield'] = array(
+      '#type' => 'submit',
+      '#name' => 'block-'.$block_id.'-textfield',
+      '#value' => t('Add Textfield'),
+      '#submit' => array('custom_blocks_add_textfield'),
+      '#ajax' => array(
+        'callback' => 'custom_blocks_block_callback',
+        'wrapper' => 'block-'.$block_id.'-elements',
+        'method' => 'replace',
+        'effect' => 'fade',
+      ),
+    );
+
+    $form['custom_blocks'][ $block_id ]['elements'] = array(
+      '#type' => 'fieldset',
+      '#prefix' => '<div id="block-'.$block_id.'-elements">',
+      '#suffix' => '</div>',
+    );
 
 		// textfield for title
-		$form['custom_blocks'][ $block_id ]['title'] = array(
-			'#type' => 'textfield',
-			'#title' => t('Block Title'),
-			'#default_value' => $block_data['title'],
-		);
+    if(isset($block_data['textfield']) && count($block_data['textfield'])) {
+      foreach($block_data['textfield'] as $tf_id => $textfield) {
+    		$form['custom_blocks'][ $block_id ]['elements']['textfield'][ $tf_id ] = array(
+    			'#type' => 'textfield',
+    			'#title' => t('Textfield '.$tf_id),
+    			'#default_value' => $textfield,
+    		);
+      }
+    }
 
 		// text_format for content
-		$content = $block_data['content'];
+		/*$content = $block_data['content'];
 		if(!isset($content['value'])) $content['value'] = $content;
 		$form['custom_blocks'][ $block_id ]['content'] = array(
 			'#type' => 'text_format',
 			'#title' => t('Block Content'),
 			'#default_value' => $content['value'],
 			'#format' => 'full_html',
-		);
+		);*/
 
     // remove block wrapper
     $form['custom_blocks'][ $block_id ]['remove_wrapper'] = array(
@@ -117,11 +144,10 @@ function custom_blocks_form() {
         '#type' => 'submit',
         '#value' => t('Yes'),
         '#submit' => array('custom_blocks_remove_block_confirm'),
-        '#attributes' => array('class' => array('custom_block_confirm_remove')),
         '#prefix' => t('Are you sure?&nbsp;&nbsp;'),
         '#ajax' => array(
-          'callback' => 'custom_blocks_block_callback',
-          'wrapper' => 'block-wrapper',
+          'callback' => 'custom_blocks_blocks_wrapper_callback',
+          'wrapper' => 'blocks-wrapper',
           'method' => 'replace',
           'effect' => 'fade',
         ),
@@ -132,7 +158,6 @@ function custom_blocks_form() {
         '#type' => 'submit',
         '#value' => t('No'),
         '#submit' => array('custom_blocks_remove_block_cancel'),
-        '#attributes' => array('class' => array('custom_block_cancel_remove')),
         '#ajax' => array(
           'callback' => 'custom_blocks_remove_block_callback',
           'wrapper' => 'remove-block-'.$block_id,
@@ -146,7 +171,6 @@ function custom_blocks_form() {
         '#type' => 'submit',
         '#value' => t('Remove Block '.$block_id),
         '#submit' => array('custom_blocks_remove_block'),
-        '#attributes' => array('class' => array('custom_block_remove')),
         '#ajax' => array(
           'callback' => 'custom_blocks_remove_block_callback',
           'wrapper' => 'remove-block-'.$block_id,
@@ -169,8 +193,16 @@ function custom_blocks_form() {
 /*
  * AJAX Callback for add and confirm remove button
  */
-function custom_blocks_block_callback($form, $form_state) {
+function custom_blocks_blocks_wrapper_callback($form, $form_state) {
   return $form['custom_blocks'];
+}
+
+/*
+ * AJAX Callback for add and remove elements buttons
+ */
+function custom_blocks_block_callback($form, $form_state) {
+  $block_id = $form_state['triggering_element']['#parents'][1];
+  return $form['custom_blocks'][ $block_id ]['elements'];
 }
 
 /*
@@ -232,6 +264,20 @@ function custom_blocks_remove_block_confirm($form, &$form_state) {
 	variable_set('custom_blocks_local_data', $custom_blocks_data);
 
 	$form_state['rebuild'] = TRUE;
+}
+
+/*
+ * Function called by add textfield
+ * Store data in local and in default array in case the user wants to export this saved data
+ */
+function custom_blocks_add_textfield($form, &$form_state) {
+  $block_id = $form_state['triggering_element']['#parents'][1];
+  $custom_blocks_data = variable_get('custom_blocks_data', '');
+  $custom_blocks_data[ $block_id ]['textfield'][] = '';
+  variable_set('custom_blocks_data', $custom_blocks_data);
+  variable_set('custom_blocks_local_data', $custom_blocks_data);
+
+  $form_state['rebuild'] = TRUE;
 }
 
 /*
